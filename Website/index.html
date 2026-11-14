@@ -1,0 +1,417 @@
+
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>He thong giam sat be nuoi thuy san</title>
+
+<script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+
+<style>
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    font-family: Arial, sans-serif;
+    background: #eef4f8;
+    text-align: center;
+}
+
+header {
+    background: #087e8b;
+    color: white;
+    padding: 20px;
+}
+
+.container {
+    max-width: 1100px;
+    margin: 25px auto;
+    padding: 15px;
+}
+
+.connection {
+    background: white;
+    padding: 18px;
+    border-radius: 10px;
+    margin-bottom: 20px;
+}
+
+.cards {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 18px;
+}
+
+.card {
+    background: white;
+    padding: 25px;
+    border-radius: 12px;
+    box-shadow: 0 3px 10px #00000010;
+}
+
+.card h3 {
+    color: #087e8b;
+}
+
+.value {
+    font-size: 32px;
+    font-weight: bold;
+    margin: 18px;
+}
+
+.section {
+    background: white;
+    padding: 25px;
+    margin-top: 22px;
+    border-radius: 12px;
+}
+
+button {
+    padding: 13px 22px;
+    margin: 7px;
+    border: none;
+    border-radius: 8px;
+    color: white;
+    font-size: 15px;
+    cursor: pointer;
+}
+
+button:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.mode {
+    background: #087e8b;
+}
+
+.on {
+    background: green;
+}
+
+.off {
+    background: red;
+}
+
+.selected {
+    outline: 3px solid #f59e0b;
+}
+
+.status-on {
+    color: green;
+}
+
+.status-off {
+    color: red;
+}
+
+@media(max-width: 600px) {
+    .cards {
+        grid-template-columns: 1fr;
+    }
+}
+</style>
+</head>
+
+<body>
+
+<header>
+    <h2>HE THONG GIAM SAT BE NUOI THUY SAN</h2>
+    <p>ESP32 - FreeRTOS - MQTT</p>
+</header>
+
+<div class="container">
+
+    <div class="connection">
+        Ket noi MQTT:
+        <b id="connection">Dang ket noi...</b>
+        <br><br>
+
+        Che do:
+        <b id="mode">AUTO</b>
+    </div>
+
+    <div class="cards">
+
+        <div class="card">
+            <h3>MUC NUOC</h3>
+            <div class="value">
+                <span id="water">--</span> m
+            </div>
+        </div>
+
+        <div class="card">
+            <h3>NHIET DO</h3>
+            <div class="value">
+                <span id="temperature">--</span> °C
+            </div>
+        </div>
+
+        <div class="card">
+            <h3>MAY BOM</h3>
+            <div class="value" id="pump">OFF</div>
+        </div>
+
+        <div class="card">
+            <h3>VAN XA</h3>
+            <div class="value" id="valve">OFF</div>
+        </div>
+
+    </div>
+
+    <div class="section">
+        <h2>DIEU KHIEN HE THONG</h2>
+
+        <button class="mode" id="autoBtn">
+            CHE DO TU DONG
+        </button>
+
+        <button class="mode" id="manualBtn">
+            CHE DO THU CONG
+        </button>
+
+        <h3>May bom</h3>
+
+        <button class="on" id="pumpOn">
+            BAT MAY BOM
+        </button>
+
+        <button class="off" id="pumpOff">
+            TAT MAY BOM
+        </button>
+
+        <h3>Van xa</h3>
+
+        <button class="on" id="valveOn">
+            MO VAN XA
+        </button>
+
+        <button class="off" id="valveOff">
+            DONG VAN XA
+        </button>
+
+        <p id="message">Dang khoi dong he thong...</p>
+    </div>
+
+</div>
+
+<script>
+
+const broker = "wss://broker.emqx.io:8084/mqtt";
+
+const topicData = "benuoi/demo01/data";
+const topicPump = "benuoi/demo01/pump/cmd";
+const topicValve = "benuoi/demo01/valve/cmd";
+const topicMode = "benuoi/demo01/mode/cmd";
+const topicStatus = "benuoi/demo01/status";
+
+let currentMode = "AUTO";
+
+const connectionText = document.getElementById("connection");
+const modeText = document.getElementById("mode");
+const messageText = document.getElementById("message");
+
+const client = mqtt.connect(broker, {
+    clientId: "WEB_" + Math.random().toString(16).slice(2),
+    clean: true,
+    reconnectPeriod: 3000,
+    connectTimeout: 10000
+});
+
+client.on("connect", function() {
+
+    connectionText.innerText = "DA KET NOI";
+    connectionText.style.color = "green";
+
+    client.subscribe(topicData);
+    client.subscribe(topicStatus);
+
+    messageText.innerText = "Da ket noi MQTT thanh cong";
+
+});
+
+client.on("reconnect", function() {
+
+    connectionText.innerText = "DANG KET NOI LAI";
+    connectionText.style.color = "orange";
+
+});
+
+client.on("offline", function() {
+
+    connectionText.innerText = "MAT KET NOI";
+    connectionText.style.color = "red";
+
+});
+
+client.on("error", function(error) {
+
+    console.log("MQTT Error:", error);
+
+    connectionText.innerText = "LOI KET NOI";
+    connectionText.style.color = "red";
+
+});
+
+client.on("message", function(topic, payload) {
+
+    let data;
+
+    try {
+        data = JSON.parse(payload.toString());
+    } catch(error) {
+        console.log("Du lieu khong hop le");
+        return;
+    }
+
+    if(topic === topicData) {
+
+        document.getElementById("water").innerText =
+            Number(data.waterLevel).toFixed(2);
+
+        document.getElementById("temperature").innerText =
+            Number(data.temperature).toFixed(1);
+
+    }
+
+    if(topic === topicStatus) {
+
+        if(data.mode) {
+            currentMode = data.mode;
+            modeText.innerText = currentMode;
+            updateButtons();
+        }
+
+        if(typeof data.pump === "boolean") {
+            updateDevice("pump", data.pump);
+        }
+
+        if(typeof data.valve === "boolean") {
+            updateDevice("valve", data.valve);
+        }
+
+    }
+
+});
+
+function updateButtons() {
+
+    document.getElementById("autoBtn").classList.toggle(
+        "selected", currentMode === "AUTO"
+    );
+
+    document.getElementById("manualBtn").classList.toggle(
+        "selected", currentMode === "MANUAL"
+    );
+
+}
+
+function updateDevice(device, state) {
+
+    const element = document.getElementById(device);
+
+    element.innerText = state ? "ON" : "OFF";
+
+    element.className = state
+        ? "value status-on"
+        : "value status-off";
+
+}
+
+function publishCommand(topic, command) {
+
+    if(!client.connected) {
+        messageText.innerText = "Chua ket noi MQTT";
+        return;
+    }
+
+    client.publish(topic, command, {qos: 0}, function(error) {
+
+        if(error) {
+            messageText.innerText = "Gui lenh that bai";
+        } else {
+            messageText.innerText = "Da gui lenh: " + command;
+        }
+
+    });
+
+}
+
+function setMode(mode) {
+
+    publishCommand(topicMode, mode);
+
+    currentMode = mode;
+    modeText.innerText = mode;
+
+    updateButtons();
+
+}
+
+function controlPump(state) {
+
+    if(currentMode !== "MANUAL") {
+        alert("Vui long chuyen sang che do thu cong!");
+        return;
+    }
+
+    publishCommand(topicPump, state);
+
+}
+
+function controlValve(state) {
+
+    if(currentMode !== "MANUAL") {
+        alert("Vui long chuyen sang che do thu cong!");
+        return;
+    }
+
+    publishCommand(topicValve, state);
+
+}
+
+document.getElementById("autoBtn").addEventListener(
+    "click", function() {
+        setMode("AUTO");
+    }
+);
+
+document.getElementById("manualBtn").addEventListener(
+    "click", function() {
+        setMode("MANUAL");
+    }
+);
+
+document.getElementById("pumpOn").addEventListener(
+    "click", function() {
+        controlPump("ON");
+    }
+);
+
+document.getElementById("pumpOff").addEventListener(
+    "click", function() {
+        controlPump("OFF");
+    }
+);
+
+document.getElementById("valveOn").addEventListener(
+    "click", function() {
+        controlValve("ON");
+    }
+);
+
+document.getElementById("valveOff").addEventListener(
+    "click", function() {
+        controlValve("OFF");
+    }
+);
+
+updateButtons();
+
+</script>
+
+</body>
+</html>
